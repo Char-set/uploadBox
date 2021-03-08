@@ -42,9 +42,10 @@ const sliceMax = 2 * 1024 * 1024;
 const upMemberMax = 3;
 
 const method = 'post';
-const action = '/api/upload';
+const action = '/api/file/upload';
 
 import {filesSlice} from '../utils/index'
+import SparkMD5 from 'spark-md5';
 export default {
     data() {
         return {
@@ -129,19 +130,59 @@ export default {
             console.log(fileslice);
             return fileslice;
         },
+        async _calculateFileMd5(file) {
+            return new Promise((rl, rj) => {
+                var blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice,
+                    chunkSize = 2097152,                             // Read in chunks of 2MB
+                    chunks = Math.ceil(file.size / chunkSize),
+                    currentChunk = 0,
+                    spark = new SparkMD5.ArrayBuffer(),
+                    fileReader = new FileReader();
+            
+                fileReader.onload = function (e) {
+                    console.log('read chunk nr', currentChunk + 1, 'of', chunks);
+                    spark.append(e.target.result);                   // Append array buffer
+                    currentChunk++;
+            
+                    if (currentChunk < chunks) {
+                        loadNext();
+                    } else {
+                        let fileMd5 = spark.end();
+                        console.log('finished loading');
+                        console.info('computed hash', fileMd5);  // Compute hash
+                        rl(fileMd5);
+                    }
+                };
+            
+                fileReader.onerror = function () {
+                    console.warn('oops, something went wrong.');
+                };
+            
+                function loadNext() {
+                    var start = currentChunk * chunkSize,
+                        end = ((start + chunkSize) >= file.size) ? file.size : start + chunkSize;
+            
+                    fileReader.readAsArrayBuffer(blobSlice.call(file, start, end));
+                }
+            
+                loadNext();
+            })
+        },
         _createUploadPromise(file) {
             if(!file) return false;
             
             return new Promise(async (rl,rj) => {
 
                 let fileSlices = this._getFilesSlice(file);
+                // 计算文件md5
+                let fileMd5 = await this._calculateFileMd5(file);
                 let uploadPro = [];
                 for(let i = 0; i < fileSlices.length; i++) {
                     let fileBinary = file.slice(fileSlices[i].start, fileSlices[i].end);
                     uploadPro.push(this._creatUploadRequest({
                         file:fileBinary,
                         fileName: file.name,
-                        fileMd5: 'aaa',
+                        fileMd5,
                         chunks: fileSlices.length,
                         chunkNth: i
                     }))
@@ -183,7 +224,7 @@ export default {
                 xhr.onload = function onload() {
                     if(xhr.status < 200 || xhr.status >= 300) {
                         console.error(`cannot ${method} ${action} ${xhr.status}'`);
-                        rj(e);
+                        rj();
                         return;
                     }
 
