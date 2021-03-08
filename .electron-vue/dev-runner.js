@@ -67,7 +67,8 @@ function startRenderer () {
         proxy: {
           '/api':{
               // target: 'https://mpogwi-test.1o2o.com/api/document',
-              target: 'http://47.101.147.146/upload-web/',
+              // target: 'http://47.101.147.146/upload-web/',
+              target: 'http://127.0.0.1:7002',
               changeOrigin: true,
               pathRewrite:{
                   '/api':''

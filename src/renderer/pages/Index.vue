@@ -37,6 +37,10 @@ function getBody(xhr) {
   }
 }
 
+const sliceMax = 2 * 1024 * 1024;
+
+const upMemberMax = 3;
+
 const method = 'post';
 const action = '/api/upload';
 
@@ -91,7 +95,7 @@ export default {
             if(!files || files.length === 0) return;
             const originFiles = [...files];
             const postFiles = originFiles.map(file => {
-                filesSlice(file)
+                
                 file.uid = _getUid();
                 return this._createUploadPromise(file);
             });
@@ -100,15 +104,59 @@ export default {
                 // debugger
             })
         },
+        _getFilesSlice(file) {
+            let fileSize = file.size;
+            let count = Math.ceil(fileSize / sliceMax);
+            let fileslice = [];
+            let start = 0, end;
+            for(let i = 0; i <= count; i++) {
+                if(i == count) {
+                    end = fileSize;
+                } else {
+                    end = start + sliceMax;
+                }
+                let json = {
+                    index: i,
+                    start,
+                    end,
+                    isok: false
+                };
+                fileslice.push(json);
+
+                start = end;
+            }
+
+            console.log(fileslice);
+            return fileslice;
+        },
         _createUploadPromise(file) {
             if(!file) return false;
+            
+            return new Promise(async (rl,rj) => {
+
+                let fileSlices = this._getFilesSlice(file);
+                let uploadPro = [];
+                for(let i = 0; i < fileSlices.length; i++) {
+                    let fileBinary = file.slice(fileSlices[i].start, fileSlices[i].end);
+                    uploadPro.push(this._creatUploadRequest({
+                        file:fileBinary,
+                        fileName: file.name,
+                        fileMd5: 'aaa',
+                        chunks: fileSlices.length,
+                        chunkNth: i
+                    }))
+                }
+
+                await Promise.all(uploadPro);
+
+                
+
+                console.log('上传完成');
+            })
+        },
+        async _creatUploadRequest(fileObj) {
             const _this = this;
-
-            return new Promise((rl,rj) => {
-
-
-
-
+            return new Promise((rl, rj) => {
                 const xhr = new XMLHttpRequest();
                 if(xhr.upload) {
                     xhr.upload.onprogress = function progress(e) {
@@ -119,19 +167,23 @@ export default {
                         }
                     }
                 }
-
                 const formData = new FormData();
 
-                formData.append('file', file);
+                formData.append('file', fileObj.file);
+                formData.append('fileName', fileObj.fileName);
+                formData.append('fileMd5', fileObj.fileMd5);
+                formData.append('chunks', fileObj.chunks);
+                formData.append('chunkNth', fileObj.chunkNth);
 
                 xhr.onerror = function error(e) {
                     console.error(e);
+                    rj(e);
                 }
 
                 xhr.onload = function onload() {
                     if(xhr.status < 200 || xhr.status >= 300) {
                         console.error(`cannot ${method} ${action} ${xhr.status}'`);
-
+                        rj(e);
                         return;
                     }
 
@@ -158,7 +210,6 @@ export default {
                     }
                 });
                 xhr.send(formData);
-
             })
         }
     },
