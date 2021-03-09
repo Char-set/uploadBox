@@ -10,6 +10,20 @@
                 <div class="upload_desc">Click or drag file to this area to upload</div>
             </div>
         </div>
+        <div class="upload_list">
+            <div class="upload_item" v-for="(file, idx) in uploadList" :key="file.fileMd5">
+                <div class="upload_progress" :style="{height: progressList[idx] > 0 ? '2px' : ''}">
+                    <div class="progress_line" :style="{height: progressList[idx] > 0 ? '2px' : '', width: progressList[idx] + '%'}"></div>
+                </div>
+                <div class="attachment">
+                    <img src="../assets/attachment_icon.svg" class="attachment_icon" alt="">
+                </div>
+                <div class="file_text">{{file.fileName}}</div>
+                <div class="delete">
+                    <img src="../assets/delete_icon.svg" class="delete_icon" alt="">
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -37,7 +51,7 @@ function getBody(xhr) {
   }
 }
 
-const sliceMax = 2 * 1024 * 1024;
+const sliceMax = 5 * 1024 * 1024;
 
 const upMemberMax = 3;
 
@@ -52,6 +66,17 @@ export default {
             accept:'*',
             precent: 0,
             uid: '',
+            uploadList:[],//
+
+        }
+    },
+    computed: {
+        progressList() {
+            return this.uploadList.map(item => {
+                return Math.min(100, item.progressList.reduce((prev, current,) => {
+                    return prev + current;
+                },0))
+            })
         }
     },
     methods: {
@@ -110,8 +135,8 @@ export default {
             let count = Math.ceil(fileSize / sliceMax);
             let fileslice = [];
             let start = 0, end;
-            for(let i = 0; i <= count; i++) {
-                if(i == count) {
+            for(let i = 0; i < count; i++) {
+                if(i == count - 1) {
                     end = fileSize;
                 } else {
                     end = start + sliceMax;
@@ -172,11 +197,32 @@ export default {
             if(!file) return false;
             
             return new Promise(async (rl,rj) => {
-
+                
                 let fileSlices = this._getFilesSlice(file);
                 // 计算文件md5
                 let fileMd5 = await this._calculateFileMd5(file);
+                //
+                this.uploadList.push({
+                    fileName: file.name,
+                    progress:0,//
+                    file,
+                    fileMd5,
+                    progressList: new Array(fileSlices.length).fill(0),//
+                })
                 let uploadPro = [];
+                let upIdx = this.uploadList.length - 1;
+                // if(fileSlices < 2) {
+                //     this._creatUploadRequest({
+                //         file,
+                //         fileName: file.name,
+                //         fileMd5,
+                //         chunks: fileSlices.length,
+                //         chunkNth: 1,
+                //         fileTotalSize: file.size
+                //     }, upIdx)
+                // } else {
+                    
+                // }
                 for(let i = 0; i < fileSlices.length; i++) {
                     let fileBinary = file.slice(fileSlices[i].start, fileSlices[i].end);
                     uploadPro.push(this._creatUploadRequest({
@@ -184,18 +230,15 @@ export default {
                         fileName: file.name,
                         fileMd5,
                         chunks: fileSlices.length,
-                        chunkNth: i
-                    }))
+                        chunkNth: i,
+                        fileTotalSize: file.size
+                    }, upIdx));
                 }
-
                 await Promise.all(uploadPro);
-
-                
-
                 console.log('上传完成');
             })
         },
-        async _creatUploadRequest(fileObj) {
+        async _creatUploadRequest(fileObj, upIdx) {
             const _this = this;
             return new Promise((rl, rj) => {
                 const xhr = new XMLHttpRequest();
@@ -203,8 +246,13 @@ export default {
                     xhr.upload.onprogress = function progress(e) {
                         if(e.total > 0) {
                             let precent = (e.loaded / e.total) * 100;
-                            _this.precent = precent;
-                            console.log('precent:', precent)
+                            // _this.precent = precent;
+                            // console.log('precent:', precent)
+                            if(precent == 100) {
+                                console.log(precent * (e.total / fileObj.fileTotalSize));
+                            }
+                            // _this.uploadList[upIdx].progressList[fileObj.chunkNth] = (e.loaded / fileObj.fileTotalSize) * 100;
+                            _this.$set(_this.uploadList[upIdx].progressList, fileObj.chunkNth, (e.loaded / fileObj.fileTotalSize) * 100)
                         }
                     }
                 }
@@ -269,9 +317,10 @@ export default {
 <style lang="scss">
     .container{
         display: flex;
-        justify-content: center;
+        // justify-content: center;
         align-items: center;
         min-height: 100vh;
+        flex-direction: column;
         .custom_upload{
             display: inline-block;
             width: 390px;
@@ -283,7 +332,7 @@ export default {
             text-align: center;
             padding: 20px 0;
             box-sizing: border-box;
-            position: absolute;
+            position: relative;
             transition: border-color .3s;
             overflow: hidden;
             .upload_progress{
@@ -315,6 +364,64 @@ export default {
                 z-index: 10;
                 cursor: pointer;
                 display: none;
+            }
+        }
+        .upload_list{
+            width: 390px;
+            .upload_item{
+                margin-top: 8px;
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                transition: background-color .3s;
+                padding: 5px;
+                &:hover{
+                    background: #fff;
+                }
+                position: relative;
+                .upload_progress{
+                    position: absolute;
+                    height: 2px;
+                    width: 100%;
+                    left: 0;
+                    top: 1px;
+                    z-index: 9;
+                    background: #f5f5f5;
+                    transition: height .3s;
+                    .progress_line{
+                        height: 2px;
+                        width: 30%;
+                        background: #67C23A;
+                        transition: width .2s;
+                    }
+                }
+                .attachment{
+                    width: 16px;
+                    height: 16px;
+                    .attachment_icon{
+                        display: block;
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
+                .file_text{
+                    font-size: 14px;
+                    flex: 1;
+                    box-sizing: border-box;
+                    padding: 0 10px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .delete{
+                    width: 16px;
+                    height: 16px;
+                    .delete_icon{
+                        display: block;
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
             }
         }
     }
