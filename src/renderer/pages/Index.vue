@@ -58,7 +58,6 @@ const upMemberMax = 3;
 const method = 'post';
 const action = '/api/file/upload';
 
-import {filesSlice} from '../utils/index'
 import SparkMD5 from 'spark-md5';
 export default {
     data() {
@@ -236,6 +235,7 @@ export default {
                 }
                 await Promise.all(uploadPro);
                 console.log('上传完成');
+                this._api.merge_chunk();
             })
         },
         async _creatUploadRequest(fileObj, upIdx) {
