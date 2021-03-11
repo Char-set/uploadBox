@@ -11,7 +11,7 @@
             </div>
         </div>
         <div class="upload_list">
-            <div class="upload_item" v-for="(file, idx) in uploadList" :key="file.fileMd5">
+            <div class="upload_item" v-for="(file, idx) in uploadList" :key="file.fileMd5 + idx">
                 <div class="upload_progress" :style="{height: progressList[idx] > 0 ? '2px' : ''}">
                     <div class="progress_line" :style="{height: progressList[idx] > 0 ? '2px' : '', width: progressList[idx] + '%'}"></div>
                 </div>
@@ -198,8 +198,26 @@ export default {
             return new Promise(async (rl,rj) => {
                 
                 let fileSlices = this._getFilesSlice(file);
+                let totalPieces = fileSlices.length;
                 // 计算文件md5
                 let fileMd5 = await this._calculateFileMd5(file);
+
+                let { data: checkData } = await this._api.checkFile({
+                    fileMd5,
+                    fileName:file.name,
+                    filePieces:fileSlices
+                });
+                let { status, leftPieces} = checkData;
+                if(status == 'file not exist') {
+                    
+                } else if(status == 'file need continue upload') {
+                    fileSlices = leftPieces;
+                    debugger
+                } else if(status == 'file exist') {
+                    debugger
+                    return;
+                }
+
                 //
                 this.uploadList.push({
                     fileName: file.name,
@@ -229,13 +247,17 @@ export default {
                         fileName: file.name,
                         fileMd5,
                         chunks: fileSlices.length,
-                        chunkNth: i,
+                        chunkNth: fileSlices[i].index,
                         fileTotalSize: file.size
                     }, upIdx));
                 }
                 await Promise.all(uploadPro);
                 console.log('上传完成');
-                this._api.merge_chunk();
+                this._api.merge_chunk({
+                    fileName: file.name,
+                    fileMd5,
+                    chunksTotal:totalPieces
+                });
             })
         },
         async _creatUploadRequest(fileObj, upIdx) {
