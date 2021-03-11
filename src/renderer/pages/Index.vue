@@ -199,6 +199,7 @@ export default {
                 
                 let fileSlices = this._getFilesSlice(file);
                 let totalPieces = fileSlices.length;
+                let fileSize = file.size;
                 // 计算文件md5
                 let fileMd5 = await this._calculateFileMd5(file);
 
@@ -212,9 +213,17 @@ export default {
                     
                 } else if(status == 'file need continue upload') {
                     fileSlices = leftPieces;
-                    debugger
+                    fileSize = fileSlices.reduce((prev, current) => {
+                        return prev + (current.end - current.start);
+                    },0)
                 } else if(status == 'file exist') {
-                    debugger
+                    this.uploadList.push({
+                        fileName: file.name,
+                        progress:0,//
+                        file,
+                        fileMd5,
+                        progressList: new Array(fileSlices.length).fill(100),//
+                    })
                     return;
                 }
 
@@ -248,7 +257,7 @@ export default {
                         fileMd5,
                         chunks: fileSlices.length,
                         chunkNth: fileSlices[i].index,
-                        fileTotalSize: file.size
+                        fileTotalSize: fileSize
                     }, upIdx));
                 }
                 await Promise.all(uploadPro);
