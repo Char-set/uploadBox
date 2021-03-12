@@ -51,7 +51,7 @@ function getBody(xhr) {
   }
 }
 
-const sliceMax = 5 * 1024 * 1024;
+const sliceMax = 200 * 1024 * 1024;
 
 const upMemberMax = 3;
 
@@ -202,29 +202,14 @@ export default {
                 let fileSize = file.size;
                 // 计算文件md5
                 let fileMd5 = await this._calculateFileMd5(file);
+                
+                let { status, leftPieces} = await this._checkFile(fileMd5, file.name, fileSlices);
 
-                let { data: checkData } = await this._api.checkFile({
-                    fileMd5,
-                    fileName:file.name,
-                    filePieces:fileSlices
-                });
-                let { status, leftPieces} = checkData;
-                if(status == 'file not exist') {
-                    
-                } else if(status == 'file need continue upload') {
+                if(status == 'file need continue upload') {
                     fileSlices = leftPieces;
                     fileSize = fileSlices.reduce((prev, current) => {
                         return prev + (current.end - current.start);
-                    },0)
-                } else if(status == 'file exist') {
-                    this.uploadList.push({
-                        fileName: file.name,
-                        progress:0,//
-                        file,
-                        fileMd5,
-                        progressList: new Array(fileSlices.length).fill(100),//
-                    })
-                    return;
+                    },0);
                 }
 
                 //
@@ -267,6 +252,53 @@ export default {
                     fileMd5,
                     chunksTotal:totalPieces
                 });
+            })
+        },
+        _checkFile(fileMd5,fileName, filePieces) {
+            return new Promise(async (rl,rj) => {
+                try {
+                    let { data: checkData } = await this._api.checkFile({
+                        fileMd5,
+                        fileName,
+                        filePieces
+                    });
+                    let { status, leftPieces} = checkData;
+
+                    if(status === 'file exist') {
+                        this.uploadList.push({
+                            fileName,
+                            progress:0,//
+                            // file,
+                            fileMd5,
+                            progressList: [100],//
+                        });
+                        rj();
+                    } else {
+                        rl({status, leftPieces});
+                    }
+                    // if(status == 'file not exist') {
+                    //     rl({status});
+                    // } else if(status == 'file need continue upload') {
+                    //     // fileSlices = leftPieces;
+                    //     // fileSize = fileSlices.reduce((prev, current) => {
+                    //     //     return prev + (current.end - current.start);
+                    //     // },0);
+                    //     rl({status, leftPieces});
+                    // } else if(status == 'file exist') {
+                    //     this.uploadList.push({
+                    //         fileName,
+                    //         progress:0,//
+                    //         // file,
+                    //         fileMd5,
+                    //         progressList: [100],//
+                    //     });
+                    //     rj();
+                    //     return;
+                    // }
+                } catch (error) {
+                    rj();
+                    console.error(error);
+                }
             })
         },
         async _creatUploadRequest(fileObj, upIdx) {
