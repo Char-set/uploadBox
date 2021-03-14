@@ -24,6 +24,7 @@
                 </div>
             </div>
         </div>
+        <div class="time_ount">{{timeCount}}</div>
     </div>
 </template>
 
@@ -51,7 +52,7 @@ function getBody(xhr) {
   }
 }
 
-const sliceMax = 200 * 1024 * 1024;
+const sliceMax = 2 * 1024 * 1024;
 
 const upMemberMax = 3;
 
@@ -66,7 +67,7 @@ export default {
             precent: 0,
             uid: '',
             uploadList:[],//
-
+            timeCount:0
         }
     },
     computed: {
@@ -82,9 +83,11 @@ export default {
         reset() {
             this.uid = _getUid();
         },
+        // 点击事件监听
         _hanldeClick() {
             this.fileInput.click();
         },
+        // 粘贴事件监听
         _handlePasteFile(e) {
             console.log(e)
 
@@ -96,6 +99,7 @@ export default {
 
             this._uploadFiles(acceptFiles);
         },
+        // 拖拽事件监听
         _handleFileDrop(e) {
             e.preventDefault();
             if(e.type === 'dragover') return;
@@ -104,6 +108,7 @@ export default {
             );
             this._uploadFiles(acceptFiles);
         },
+        // 文件变化监听
         _handleFileChange(e) {
             const { files } = e.target;
             const acceptFiles = [...files].filter(file => {
@@ -116,6 +121,7 @@ export default {
             this.fileInput.value = null;
             this.reset();
         },
+        // 处理文件
         _uploadFiles(files) {
             if(!files || files.length === 0) return;
             const originFiles = [...files];
@@ -126,14 +132,16 @@ export default {
             });
 
             Promise.all(postFiles).then(res => {
-                // debugger
+                debugger
             })
         },
-        _getFilesSlice(file) {
+        // 获取文件切片数据
+        _getChunks(file) {
             let fileSize = file.size;
             let count = Math.ceil(fileSize / sliceMax);
-            let fileslice = [];
+            let chunks = [];
             let start = 0, end;
+            let blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
             for(let i = 0; i < count; i++) {
                 if(i == count - 1) {
                     end = fileSize;
@@ -144,31 +152,47 @@ export default {
                     index: i,
                     start,
                     end,
-                    isok: false
+                    isok: false,
+                    file: blobSlice.call(file, start, end)
                 };
-                fileslice.push(json);
+                chunks.push(json);
 
                 start = end;
             }
-
-            console.log(fileslice);
-            return fileslice;
+            return chunks;
         },
-        async _calculateFileMd5(file) {
+        // 获取文件类型
+        _getFileType(file) {
             return new Promise((rl, rj) => {
-                var blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice,
-                    chunkSize = 2097152,                             // Read in chunks of 2MB
-                    chunks = Math.ceil(file.size / chunkSize),
+                const reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                reader.onload = event => {
+                    let array = new Uint8Array(event.target.result);
+                    array = array.slice(0, 4);
+                    let arr = [...array]
+                    let key = arr.map(item => item.toString(16)
+                        .toUpperCase()
+                        .padStart(2, '0'))
+                        .join('');
+                    rl(key)
+                }
+            })
+        },
+        // 计算文件Md5 SparkMD5
+        async _calculateFileMd5(chunks) {
+            return new Promise((rl, rj) => {
+                var 
+                    chunksTotal = chunks.length,
                     currentChunk = 0,
                     spark = new SparkMD5.ArrayBuffer(),
                     fileReader = new FileReader();
-            
+                
                 fileReader.onload = function (e) {
-                    console.log('read chunk nr', currentChunk + 1, 'of', chunks);
+                    // console.log('read chunk nr', currentChunk + 1, 'of', chunks);
                     spark.append(e.target.result);                   // Append array buffer
                     currentChunk++;
             
-                    if (currentChunk < chunks) {
+                    if (currentChunk < chunksTotal) {
                         loadNext();
                     } else {
                         let fileMd5 = spark.end();
@@ -183,77 +207,119 @@ export default {
                 };
             
                 function loadNext() {
-                    var start = currentChunk * chunkSize,
-                        end = ((start + chunkSize) >= file.size) ? file.size : start + chunkSize;
             
-                    fileReader.readAsArrayBuffer(blobSlice.call(file, start, end));
+                    fileReader.readAsArrayBuffer(chunks[currentChunk].file);
                 }
             
                 loadNext();
             })
         },
+        // 利用 浏览器渲染当前帧的空闲时间去计算，防止卡顿(计算时间更长)
+        _calculateHashIdeBack(chunks) {
+            return new Promise((rl, rj) => {
+                const spark = new SparkMD5.ArrayBuffer();
+                const len = chunks.length;
+                let count = 0;
+                let fileReader = new FileReader();
+                const appendToSpark = async file => {
+                    return new Promise((rl, rj) => {
+                        fileReader.onload = e => {
+                            spark.append(e.target.result);                   // Append array buffer
+                            rl();
+                        }
+                        fileReader.readAsArrayBuffer(file);
+                    });
+                }
+                const workLoop = async deadline => {
+                    while(count < len && deadline.timeRemaining() > 1) {
+                        console.log(`current:${count}/${len}`)
+                        await appendToSpark(chunks[count].file);
+                        count++;
+                        if(count < len) {
+                        } else {
+                            rl(spark.end())
+                        }
+                    }
+                    if(count < len) {
+                        
+                        window.requestIdleCallback(workLoop);
+                    }
+                    // if(timeRemaining == 0) {
+                    //     console.log(`浏览器没时间执行咱的任务，等下次有空计算第${count}个任务`)
+                    // }
+                }
+                window.requestIdleCallback(workLoop);
+            })
+        },
+        // 文件上传
         _createUploadPromise(file) {
             if(!file) return false;
             
             return new Promise(async (rl,rj) => {
-                
-                let fileSlices = this._getFilesSlice(file);
-                let totalPieces = fileSlices.length;
-                let fileSize = file.size;
-                // 计算文件md5
-                let fileMd5 = await this._calculateFileMd5(file);
-                
-                let { status, leftPieces} = await this._checkFile(fileMd5, file.name, fileSlices);
+                try {
+                    let chunks = this._getChunks(file);
+                    let totalPieces = chunks.length;
+                    let fileSize = file.size;
 
-                if(status == 'file need continue upload') {
-                    fileSlices = leftPieces;
-                    fileSize = fileSlices.reduce((prev, current) => {
-                        return prev + (current.end - current.start);
-                    },0);
-                }
+                    let startTime = new Date().valueOf();
+                    console.log('startTime:',startTime)
+                    // 计算文件md5
+                    let fileMd5 = await this._calculateFileMd5(chunks);
 
-                //
-                this.uploadList.push({
-                    fileName: file.name,
-                    progress:0,//
-                    file,
-                    fileMd5,
-                    progressList: new Array(fileSlices.length).fill(0),//
-                })
-                let uploadPro = [];
-                let upIdx = this.uploadList.length - 1;
-                // if(fileSlices < 2) {
-                //     this._creatUploadRequest({
-                //         file,
-                //         fileName: file.name,
-                //         fileMd5,
-                //         chunks: fileSlices.length,
-                //         chunkNth: 1,
-                //         fileTotalSize: file.size
-                //     }, upIdx)
-                // } else {
+                    // let fileMd5 = await this._calculateHashIdeBack(chunks);
+
+                    let endTime = new Date().valueOf();
+                    console.log('endTime:',endTime);
+                    console.log('文件计算Md5distanceTime:',endTime - startTime);
+                    // return;
+                    // await this._getFileType(file);
                     
-                // }
-                for(let i = 0; i < fileSlices.length; i++) {
-                    let fileBinary = file.slice(fileSlices[i].start, fileSlices[i].end);
-                    uploadPro.push(this._creatUploadRequest({
-                        file:fileBinary,
+                    let { status, leftPieces} = await this._checkFile(fileMd5, file.name, chunks);
+
+                    if(status == 'file need continue upload') {
+                        chunks = leftPieces;
+                        fileSize = chunks.reduce((prev, current) => {
+                            return prev + (current.end - current.start);
+                        },0);
+                    }
+
+                    //
+                    this.uploadList.push({
+                        fileName: file.name,
+                        progress:0,//
+                        file,
+                        fileMd5,
+                        progressList: new Array(chunks.length).fill(0),//
+                    })
+                    let uploadPro = [];
+                    let upIdx = this.uploadList.length - 1;
+                    for(let i = 0; i < chunks.length; i++) {
+                        uploadPro.push(this._creatUploadRequest({
+                            file:chunks[i].file,
+                            fileName: file.name,
+                            fileMd5,
+                            chunks: chunks.length,
+                            chunkNth: chunks[i].index,
+                            fileTotalSize: fileSize
+                        }, upIdx));
+                    }
+                    await Promise.all(uploadPro);
+                    console.log('上传完成');
+                    await this._api.merge_chunk({
                         fileName: file.name,
                         fileMd5,
-                        chunks: fileSlices.length,
-                        chunkNth: fileSlices[i].index,
-                        fileTotalSize: fileSize
-                    }, upIdx));
+                        chunksTotal:totalPieces
+                    });
+                    rl();
+                } catch (error) {
+                    if(error == 'file exist') {
+                        rl();
+                    }
+                    error && console.error(error);
                 }
-                await Promise.all(uploadPro);
-                console.log('上传完成');
-                this._api.merge_chunk({
-                    fileName: file.name,
-                    fileMd5,
-                    chunksTotal:totalPieces
-                });
             })
         },
+        // 检查文件是否已上传完成或部分
         _checkFile(fileMd5,fileName, filePieces) {
             return new Promise(async (rl,rj) => {
                 try {
@@ -272,35 +338,17 @@ export default {
                             fileMd5,
                             progressList: [100],//
                         });
-                        rj();
+                        rj(status);
                     } else {
                         rl({status, leftPieces});
                     }
-                    // if(status == 'file not exist') {
-                    //     rl({status});
-                    // } else if(status == 'file need continue upload') {
-                    //     // fileSlices = leftPieces;
-                    //     // fileSize = fileSlices.reduce((prev, current) => {
-                    //     //     return prev + (current.end - current.start);
-                    //     // },0);
-                    //     rl({status, leftPieces});
-                    // } else if(status == 'file exist') {
-                    //     this.uploadList.push({
-                    //         fileName,
-                    //         progress:0,//
-                    //         // file,
-                    //         fileMd5,
-                    //         progressList: [100],//
-                    //     });
-                    //     rj();
-                    //     return;
-                    // }
                 } catch (error) {
-                    rj();
+                    rj(error);
                     console.error(error);
                 }
             })
         },
+        // 发起上传请求
         async _creatUploadRequest(fileObj, upIdx) {
             const _this = this;
             return new Promise((rl, rj) => {
@@ -372,7 +420,10 @@ export default {
             document.addEventListener('paste', (event) => {
                 this._handlePasteFile(event);
             })
-        })
+        });
+        // setInterval(() => {
+        //     this.timeCount = new Date().valueOf();
+        // }, 10);
     }
 }
 </script>
