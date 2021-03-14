@@ -52,7 +52,7 @@ function getBody(xhr) {
   }
 }
 
-const sliceMax = 2 * 1024 * 1024;
+const pieceSize = 2 * 1024 * 1024;
 
 const upMemberMax = 3;
 
@@ -138,7 +138,7 @@ export default {
         // 获取文件切片数据
         _getChunks(file) {
             let fileSize = file.size;
-            let count = Math.ceil(fileSize / sliceMax);
+            let count = Math.ceil(fileSize / pieceSize);
             let chunks = [];
             let start = 0, end;
             let blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
@@ -146,7 +146,7 @@ export default {
                 if(i == count - 1) {
                     end = fileSize;
                 } else {
-                    end = start + sliceMax;
+                    end = start + pieceSize;
                 }
                 let json = {
                     index: i,
@@ -251,6 +251,39 @@ export default {
                 window.requestIdleCallback(workLoop);
             })
         },
+        _calculateHashSampling(file) {
+            return new Promise((rl,rj) => {
+                const spark = new SparkMD5.ArrayBuffer();
+                const fileReader = new FileReader();
+                const size = file.size;
+                const offset = pieceSize;
+                let chunks = [file.slice(0, offset)];
+
+                let cur = offset;
+
+                while(cur < size) {
+                    if(cur + offset >= size) {
+                        chunks.push(file.slice(cur, cur + offset));
+                    } else {
+                        const min = cur + offset / 2;
+                        const end = cur + offset;
+
+                        chunks.push(file.slice(cur, cur + 2))
+                        chunks.push(file.slice(min, min + 2))
+                        chunks.push(file.slice(end - 2, end))
+                    }
+                    cur += offset;
+                }
+
+                fileReader.onload = e => {
+                    spark.append(e.target.result);
+                    rl(spark.end())
+                }
+
+                fileReader.readAsArrayBuffer(new Blob(chunks))
+
+            })
+        },
         // 文件上传
         _createUploadPromise(file) {
             if(!file) return false;
@@ -264,9 +297,11 @@ export default {
                     let startTime = new Date().valueOf();
                     console.log('startTime:',startTime)
                     // 计算文件md5
-                    let fileMd5 = await this._calculateFileMd5(chunks);
+                    // let fileMd5 = await this._calculateFileMd5(chunks);
 
                     // let fileMd5 = await this._calculateHashIdeBack(chunks);
+
+                    let fileMd5 = await this._calculateHashSampling(file);
 
                     let endTime = new Date().valueOf();
                     console.log('endTime:',endTime);
