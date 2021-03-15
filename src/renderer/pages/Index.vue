@@ -59,6 +59,13 @@ const upMemberMax = 3;
 const method = 'post';
 const action = '/api/file/upload';
 
+const Status = {
+    wait:0,
+    uploading:1,
+    done:2,
+    error:3
+}
+
 import SparkMD5 from 'spark-md5';
 export default {
     data() {
@@ -132,7 +139,7 @@ export default {
             });
 
             Promise.all(postFiles).then(res => {
-                debugger
+                
             })
         },
         // 获取文件切片数据
@@ -297,10 +304,14 @@ export default {
                     let startTime = new Date().valueOf();
                     console.log('startTime:',startTime)
                     // 计算文件md5
+
+                    // 普通模式
                     // let fileMd5 = await this._calculateFileMd5(chunks);
 
+                    // requestIdeCallback模式
                     // let fileMd5 = await this._calculateHashIdeBack(chunks);
 
+                    // 抽样模式
                     let fileMd5 = await this._calculateHashSampling(file);
 
                     let endTime = new Date().valueOf();
@@ -328,24 +339,33 @@ export default {
                     })
                     let uploadPro = [];
                     let upIdx = this.uploadList.length - 1;
-                    for(let i = 0; i < chunks.length; i++) {
-                        uploadPro.push(this._creatUploadRequest({
-                            file:chunks[i].file,
-                            fileName: file.name,
-                            fileMd5,
-                            chunks: chunks.length,
-                            chunkNth: chunks[i].index,
-                            fileTotalSize: fileSize
-                        }, upIdx));
-                    }
-                    await Promise.all(uploadPro);
-                    console.log('上传完成');
-                    await this._api.merge_chunk({
-                        fileName: file.name,
-                        fileMd5,
-                        chunksTotal:totalPieces
+
+                    let uploadList = chunks.map((item,idx) => {
+                        return {
+                            target: action,
+                            params: {
+                                file:item.file,
+                                fileName: file.name,
+                                fileMd5,
+                                chunks: chunks.length,
+                                chunkNth: item.index,
+                                fileTotalSize: fileSize
+                            },
+                            status: Status.wait,
+                            otherParams: upIdx
+                        }
                     });
-                    rl();
+
+
+                    await this._creatUploadRequestLimit(uploadList, 4, () => {});
+                    
+                    console.log('上传完成');
+                    // await this._api.merge_chunk({
+                    //     fileName: file.name,
+                    //     fileMd5,
+                    //     chunksTotal:totalPieces
+                    // });
+                    // rl();
                 } catch (error) {
                     if(error == 'file exist') {
                         rl();
@@ -445,6 +465,41 @@ export default {
                     }
                 });
                 xhr.send(formData);
+            })
+        },
+        // 限制同时发起的request 只有4个
+        _creatUploadRequestLimit(list = [], max = 4, callback = () => {} ) {
+            return new Promise((rl,rj) => {
+                let count = 0;
+                let currentMax = max;
+                let ans = [];
+                const len = list.length;
+                const _start = () => {
+                    while(count < list.length && currentMax > 0) {
+                        currentMax--;
+                        let i = list.findIndex(item => item.status == Status.wait || item.status == Status.error);
+
+                        list[i].status = Status.uploading;
+
+                        this._creatUploadRequest(list[i].params, list[i].otherParams)
+                        .then(res => {
+                            ans[i] = res;
+                            count++;
+                            currentMax++;
+                            list[i].status = Status.done;
+                            if(count == len){
+                                rl(ans);
+                            } else {
+                                _start();
+                            }
+                        })
+                        .catch(res => {
+
+                        })
+
+                    }
+                }
+                _start();
             })
         }
     },
