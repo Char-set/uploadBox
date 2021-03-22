@@ -31,29 +31,45 @@ function getBody(xhr) {
 
 const _getUid = getUid();
 
-const PieceSize = 8 * 1024 * 1024;
+const PieceSize = 4 * 1024 * 1024;
 
 const method = 'post';
 const action = `${apiHost}/file/upload`;
 
 const Status = {
-    wait:0,
-    uploading:1,
-    done:2,
-    error:3
+    WAIT:0,
+    UPLOADING:1,
+    DONE:2,
+    ERROR:3
 }
 
+const FileItem = ({name,progress}) => {
+    return (
+        <div className="upload_item">
+            <div className="upload_progress" style={{height: progress > 0 ? '2px' : ''}}>
+                <div className="progress_line" style={{height: progress > 0 ? '2px' : '', width: progress + '%'}}></div>
+            </div>
+            <div className="attachment">
+                <img src={require('../../assets/attachment_icon.svg').default} className="attachment_icon" alt="" />
+            </div>
+            <div className="file_text">{name}</div>
+            <div className="delete">
+                <img src={require('../../assets/delete_icon.svg').default} className="delete_icon" alt="" />
+            </div>
+        </div>
+    )
+}
+
+
 export default () => {
-	const [num, setNum] = useState(1);
 
     const [uploadList, setUploadList] = useState([]);
-    const [progressList, setProgressList] = useState([]);
 
 	const FileInput = useRef(null)
 
     useEffect(() => {
         _api.checkApi();
-    },[])
+    },[]);
 	const _handleFileDrop = (e) => {
 		e.preventDefault();
 		if(e.type === 'dragover') return;
@@ -156,7 +172,7 @@ export default () => {
                         chunkNth: item.index,
                         fileTotalSize: fileSize
                     },
-                    status: Status.wait,
+                    status: Status.WAIT,
                     otherParams: upIdx
                 }
             });
@@ -180,7 +196,6 @@ export default () => {
                 fileMd5,
                 chunksTotal:totalPieces
             });
-            rl();
         } catch (error) {
             if(error == 'file exist') {
                 return false;
@@ -354,14 +369,15 @@ export default () => {
                 let { status, leftPieces} = checkData;
 
                 if(status === 'file exist') {
-                    this.uploadList.push({
-                        fileName,
-                        progress:0,//
-                        // file,
-                        fileMd5,
-                        progressList: [100],//
-                    });
-                    rl(status);
+                    setUploadList(prev => {
+                        let tempArr = [...prev,{
+                            fileName,
+                            progress:100,//
+                            fileMd5,
+                        }];
+                        return tempArr;
+                    })
+                    rj(status);
                 } else {
                     rl({status, leftPieces});
                 }
@@ -431,22 +447,33 @@ export default () => {
         })
     }
     // 限制同时发起的request 只有4个
-    const _creatUploadRequestLimit = (list = [], max = 4, progressCallback = () => {} ) => {
+    const _creatUploadRequestLimit = (list = [], max = 6, progressCallback = () => {} ) => {
         return new Promise((rl,rj) => {
             let count = 0;
             let currentMax = list.length > max ? max : list.length;
             let ans = [];
             let progressList = [];
+            let errorList = [];
             const len = list.length;
             const _start = () => {
                 while(count < list.length && currentMax > 0) {
                     currentMax--;
-                    let i = list.findIndex(item => item.status == Status.wait || item.status == Status.error);
+                    let i = list.findIndex(item => item.status == Status.WAIT || item.status == Status.ERROR);
+
+                    if(typeof errorList[i] === 'number') {
+                        console.info(`尝试第${errorList[i]}次`)
+                        errorList[i]++;
+
+                        if(errorList[i] > 3) {
+                            rj(`文件${JSON.stringify(list[i])}上传失败`);
+                            return;
+                        }
+                    }
+
                     if(i == -1) break;
-                    list[i].status = Status.uploading;
+                    list[i].status = Status.UPLOADING;
 
                     _creatUploadRequest(list[i].params, (progress) => {
-                        console.log(progress);
                         progressList[i] = progress;
                         progressCallback && progressCallback(progressList.reduce((prev, current) => {
                             return prev + current;
@@ -456,16 +483,21 @@ export default () => {
                         ans[i] = res;
                         count++;
                         currentMax++;
-                        list[i].status = Status.done;
-                        console.log(i,'___',count,list,list.length)
+                        list[i].status = Status.DONE;
                         if(count == len){
                             rl(ans);
                         } else {
                             _start();
                         }
                     })
-                    .catch(res => {
-                        console.log(res)
+                    .catch(error => {
+                        // 切片上传失败重试
+                        list[i].status = Status.ERROR;
+                        if(!errorList[i]) errorList[i] = 1;
+                        currentMax++;
+                        if(count < len) {
+                            _start();
+                        }
                     })
 
                 }
@@ -478,18 +510,7 @@ export default () => {
     const _renderUploadList = () => {
         return uploadList.map((file,idx) => {
             return(
-                <div className="upload_item" key={file.fileMd5 + idx}>
-                    <div className="upload_progress" style={{height: file.progress > 0 ? '2px' : ''}}>
-                        <div className="progress_line" style={{height: file.progress > 0 ? '2px' : '', width: file.progress + '%'}}></div>
-                    </div>
-                    <div className="attachment">
-                        <img src={require('../../assets/attachment_icon.svg').default} className="attachment_icon" alt="" />
-                    </div>
-                    <div className="file_text">{file.fileName}</div>
-                    <div className="delete">
-                        <img src={require('../../assets/delete_icon.svg').default} className="delete_icon" alt="" />
-                    </div>
-                </div>
+                <FileItem key={file.fileMd5 + idx} name={file.fileName} progress={file.progress} />
             )
         })
     }
