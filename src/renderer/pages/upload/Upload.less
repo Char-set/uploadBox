@@ -1,0 +1,116 @@
+.container{
+    display: flex;
+    // justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    flex-direction: column;
+    .custom_upload{
+        display: inline-block;
+        width: 390px;
+        height: 180px;
+        background: #fafafa;
+        border: 1px dashed #d9d9d9;
+        border-radius: 2px;
+        cursor: pointer;
+        text-align: center;
+        padding: 20px 0;
+        box-sizing: border-box;
+        position: relative;
+        transition: border-color .3s;
+        overflow: hidden;
+        .upload_progress{
+            position: absolute;
+            height: 2px;
+            width: 100%;
+            left: 0;
+            top: 1px;
+            z-index: 9;
+            background: #f5f5f5;
+            transition: height .3s;
+            .progress_line{
+                height: 2px;
+                width: 0;
+                background: #67C23A;
+                transition: width .2s;
+                max-width: 100%;
+            }
+        }
+        &:hover{
+            border-color: #40a9ff;
+        }
+        .file_input{
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            z-index: 10;
+            cursor: pointer;
+            display: none;
+        }
+        .upload_content{
+            .upload_desc{
+                font-size: 13px;
+            }
+        }
+    }
+    .upload_list{
+        width: 390px;
+        .upload_item{
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color .3s;
+            padding: 5px;
+            &:hover{
+                background: #fff;
+            }
+            position: relative;
+            .upload_progress{
+                position: absolute;
+                height: 2px;
+                width: 100%;
+                left: 0;
+                top: 1px;
+                z-index: 9;
+                background: #f5f5f5;
+                transition: height .3s;
+                .progress_line{
+                    height: 2px;
+                    width: 30%;
+                    background: #67C23A;
+                    transition: width .2s;
+                }
+            }
+            .attachment{
+                width: 16px;
+                height: 16px;
+                .attachment_icon{
+                    display: block;
+                    width: 100%;
+                    height: 100%;
+                }
+            }
+            .file_text{
+                font-size: 14px;
+                flex: 1;
+                box-sizing: border-box;
+                padding: 0 10px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .delete{
+                width: 16px;
+                height: 16px;
+                .delete_icon{
+                    display: block;
+                    width: 100%;
+                    height: 100%;
+                }
+            }
+        }
+    }
+}
